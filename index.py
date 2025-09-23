@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import re
@@ -6,6 +7,28 @@ import tldextract
 
 # ----- App FastAPI -----
 app = FastAPI(title="API de Controle Parental Avançada")
+
+# ----- CORS -----
+origins = [
+    "http://127.0.0.1:8000",             
+    "http://localhost:3000",             
+    "http://localhost:5173",            
+    "https://paideferro.vercel.app",
+    "https://content-filter-api3.vercel.app"  
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ----- Healthcheck -----
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 # ----- Modelos -----
 class ContentCheck(BaseModel):
@@ -119,3 +142,4 @@ def atualizar_config(novas_config: ParentalControlSettings):
     global settings
     settings = novas_config
     return {"status": "Configurações atualizadas com sucesso!"}
+
