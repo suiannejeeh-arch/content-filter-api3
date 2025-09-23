@@ -1,0 +1,26 @@
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Configurações locais / IDEs
+.vscode/
+.idea/
+*.swp
+
+# Arquivos temporários do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de log
+*.log
+
+# Arquivos de ambiente (nunca subir senha/token)
+.env
