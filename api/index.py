@@ -4,6 +4,10 @@ from pydantic import BaseModel
 from typing import List
 import re
 import tldextract
+from datetime import datetime, timedelta
+import secrets
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # ----- App FastAPI -----
 app = FastAPI(title="API de Controle Parental Avançada")
@@ -146,3 +150,81 @@ def atualizar_config(novas_config: ParentalControlSettings):
 @app.get("/")
 def root():
     return {"message": "🚀 API de Controle Parental está online! Acesse /docs para explorar os endpoints."}
+from datetime import datetime, timedelta
+import secrets
+
+# ----- Modelos adicionais -----
+class Parent(BaseModel):
+    id: str
+    nome: str
+    email: str
+
+class Device(BaseModel):
+    id: str
+    nome: str
+    sistema: str  # "android" ou "ios"
+    parent_id: str
+    pareado_em: datetime
+    ultimo_heartbeat: datetime | None = None
+    ativo: bool = True
+
+class PairCode(BaseModel):
+    code: str
+    parent_id: str
+    expires_at: datetime
+    usado: bool = False
+
+# ----- Banco em memória (simples por enquanto) -----
+pais_db = []
+dispositivos_db = []
+codigos_db = []
+
+# ----- Endpoint: gerar código de pareamento -----
+@app.post("/gerar_codigo_pareamento")
+def gerar_codigo_pareamento(parent_id: str):
+    code = secrets.token_hex(3).upper()  # ex: 'A1B2C3'
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    codigo = PairCode(code=code, parent_id=parent_id, expires_at=expires_at)
+    codigos_db.append(codigo)
+    return {"codigo": code, "expira_em": expires_at}
+
+# ----- Endpoint: parear dispositivo -----
+class ParingRequest(BaseModel):
+    codigo: str
+    nome_dispositivo: str
+    sistema: str  # android / ios
+
+@app.post("/parear_dispositivo")
+def parear_dispositivo(req: ParingRequest):
+    codigo = next((c for c in codigos_db if c.code == req.codigo and not c.usado), None)
+    if not codigo:
+        raise HTTPException(status_code=400, detail="Código inválido ou expirado")
+    if codigo.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Código expirado")
+
+    device_id = secrets.token_hex(8)
+    dispositivo = Device(
+        id=device_id,
+        nome=req.nome_dispositivo,
+        sistema=req.sistema,
+        parent_id=codigo.parent_id,
+        pareado_em=datetime.utcnow()
+    )
+    dispositivos_db.append(dispositivo)
+    codigo.usado = True
+    return {"status": "pareado", "device_id": device_id}
+
+# ----- Endpoint: heartbeat (dispositivo ativo) -----
+@app.post("/heartbeat/{device_id}")
+def heartbeat(device_id: str):
+    device = next((d for d in dispositivos_db if d.id == device_id), None)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado")
+    device.ultimo_heartbeat = datetime.utcnow()
+    return {"status": "ok", "ultimo_heartbeat": device.ultimo_heartbeat}
+
+# ----- Endpoint: listar dispositivos do pai -----
+@app.get("/listar_dispositivos/{parent_id}")
+def listar_dispositivos(parent_id: str):
+    lista = [d for d in dispositivos_db if d.parent_id == parent_id]
+    return {"dispositivos": lista}
