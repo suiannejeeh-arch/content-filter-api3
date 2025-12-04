@@ -26,47 +26,15 @@ app = FastAPI(
 )
 
 # --------------------------------------------------
-# 🔹 Configuração CORS (corrigido para Vercel + Lovable)
+# 🔹 CORS — CONFIGURAÇÃO DEFINITIVA (SEM CONFLITOS)
 # --------------------------------------------------
-origins = [
-    "https://23b54587-e1fd-4bb0-883a-74a5e14d21f0.lovableproject.com",
-    "https://id-preview--23b54587-e1fd-4bb0-883a-74a5e14d21f0.lovable.app",
-    "http://localhost",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "https://paideferro.vercel.app",
-    "https://content-filter-api3.vercel.app",
-    "https://pai-de-ferro.lovable.app",
-    "https://lovable.app",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.lovable\.app",
+    allow_origin_regex=r"https://(.*\.lovable\.app|.*\.lovableproject\.com|.*\.vercel\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# Middleware extra (para preflight OPTIONS e logs)
-@app.middleware("http")
-async def handle_options(request: Request, call_next):
-    if request.method == "OPTIONS":
-        response = app.response_class(status_code=200)
-        origin = request.headers.get("origin", "*")
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Requested-With, Accept"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-    logger.info(f"{request.method} {request.url}")
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
 
 # --------------------------------------------------
 # 🔹 Autenticação
@@ -299,3 +267,10 @@ def listar_dispositivos(parent_id: str, _: bool = Security(verify_token)):
             for d in lista
         ]
     }
+              "pareado_em": d.pareado_em,
+                "ultimo_heartbeat": d.ultimo_heartbeat,
+            }
+            for d in lista
+        ]
+    }
+
