@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Security, Request
+from fastapi import FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -10,8 +10,11 @@ import secrets
 import uuid
 import logging
 
+# 🔹 Handler para Vercel
+from mangum import Mangum
+
 # --------------------------------------------------
-# 🔹 Configuração de logs
+# 🔹 Logs
 # --------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,12 +24,12 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------
 app = FastAPI(
     title="API de Controle Parental Avançada",
-    description="API para filtragem de conteúdo e pareamento de dispositivos",
+    description="API para filtragem e pareamento",
     version="1.0.0"
 )
 
 # --------------------------------------------------
-# 🔹 CORS — CONFIGURAÇÃO DEFINITIVA (SEM CONFLITOS)
+# 🔹 CORS DEFINITIVO
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -43,8 +46,7 @@ security = HTTPBearer()
 SECURE_TOKEN = "CHAVE_SUPER_SECRETA_123"
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
-    token = credentials.credentials
-    if token != SECURE_TOKEN:
+    if credentials.credentials != SECURE_TOKEN:
         raise HTTPException(status_code=403, detail="Acesso negado")
     return True
 
@@ -56,7 +58,7 @@ def health():
     return {"status": "ok"}
 
 # --------------------------------------------------
-# 🔹 Modelos principais
+# 🔹 MODELOS
 # --------------------------------------------------
 class ContentCheck(BaseModel):
     text: str
@@ -102,7 +104,7 @@ settings = ParentalControlSettings(
 )
 
 # --------------------------------------------------
-# 🔹 Palavras bloqueadas
+# 🔹 Lista negra
 # --------------------------------------------------
 BLACKLIST = [
     "sexo", "pornografia", "nudez", "xxx", "putaria",
@@ -119,31 +121,28 @@ BLACKLIST = [
 # --------------------------------------------------
 def check_blacklist(text: str):
     text_lower = text.lower()
-    blocked_words = [word for word in BLACKLIST if word in text_lower]
-    extracted = tldextract.extract(text_lower)
-    domain = extracted.domain
-    if domain in BLACKLIST:
-        blocked_words.append(domain)
-    return list(set(blocked_words))
+    blocked = [w for w in BLACKLIST if w in text_lower]
+    extracted = tldextract.extract(text_lower).domain
+    if extracted in BLACKLIST:
+        blocked.append(extracted)
+    return list(set(blocked))
 
 def is_time_allowed(day: str, time: str) -> bool:
-    schedule_item = next((s for s in settings.schedule if s.day.lower() == day.lower()), None)
-    if not schedule_item:
+    schedule = next((s for s in settings.schedule if s.day.lower() == day.lower()), None)
+    if not schedule:
         return False
     h, m = map(int, time.split(":"))
-    sh, sm = map(int, schedule_item.start_hour.split(":"))
-    eh, em = map(int, schedule_item.end_hour.split(":"))
-    after_start = h > sh or (h == sh and m >= sm)
-    before_end = h < eh or (h == eh and m <= em)
-    return schedule_item.allowed and after_start and before_end
+    sh, sm = map(int, schedule.start_hour.split(":"))
+    eh, em = map(int, schedule.end_hour.split(":"))
+    return schedule.allowed and (h > sh or (h == sh and m >= sm)) and (h < eh or (h == eh and m <= em))
 
-def is_url_allowed(url: str) -> bool:
-    url_lower = url.lower()
-    for domain in settings.blocked_domains:
-        if domain.lower() in url_lower:
+def is_url_allowed(url: str):
+    u = url.lower()
+    for d in settings.blocked_domains:
+        if d.lower() in u:
             return False
-    for keyword in settings.blocked_keywords:
-        if re.search(rf"\b{re.escape(keyword)}\b", url_lower):
+    for k in settings.blocked_keywords:
+        if re.search(rf"\b{re.escape(k)}\b", u):
             return False
     return True
 
@@ -152,40 +151,41 @@ def is_url_allowed(url: str) -> bool:
 # --------------------------------------------------
 @app.post("/check-content/")
 def check_content(data: ContentCheck):
-    blocked_words = check_blacklist(data.text)
-    if blocked_words:
-        return {"allowed": False, "reason": "Conteúdo bloqueado", "blocked_words": blocked_words}
+    blocked = check_blacklist(data.text)
+    if blocked:
+        return {"allowed": False, "reason": "Conteúdo bloqueado", "blocked_words": blocked}
     return {"allowed": True, "reason": "Conteúdo permitido"}
 
 @app.get("/verificar_acesso")
-def verificar_acesso(
-    categoria: Optional[str] = None,
-    url: Optional[str] = None,
-    dia: Optional[str] = None,
-    horario: Optional[str] = None
-):
-    if dia is None or horario is None:
+def verificar_acesso(categoria: Optional[str] = None, url: Optional[str] = None,
+                     dia: Optional[str] = None, horario: Optional[str] = None):
+
+    if not dia or not horario:
         raise HTTPException(status_code=400, detail="Dia e horário são obrigatórios")
+
     if not is_time_allowed(dia, horario):
         return {"acesso": "bloqueado", "motivo": "fora do horário permitido"}
+
     if categoria and categoria.lower() in [c.lower() for c in settings.blocked_categories]:
         return {"acesso": "bloqueado", "motivo": f"categoria '{categoria}' proibida"}
+
     if url and not is_url_allowed(url):
         return {"acesso": "bloqueado", "motivo": f"url '{url}' proibida"}
+
     return {"acesso": "permitido"}
 
 @app.post("/atualizar_config")
-def atualizar_config(novas_config: ParentalControlSettings, _: bool = Security(verify_token)):
+def atualizar_config(cfg: ParentalControlSettings, _: bool = Security(verify_token)):
     global settings
-    settings = novas_config
+    settings = cfg
     return {"status": "Configurações atualizadas com sucesso!"}
 
 @app.get("/")
 def root():
-    return {"message": "🚀 API de Controle Parental está online! Acesse /docs para explorar os endpoints."}
+    return {"message": "API de Controle Parental ativa!"}
 
 # --------------------------------------------------
-# 🔹 Pareamento de dispositivos
+# 🔹 Pareamento
 # --------------------------------------------------
 class Parent(BaseModel):
     id: str = str(uuid.uuid4())
@@ -215,8 +215,7 @@ codigos_db = []
 def gerar_codigo_pareamento(parent_id: str, _: bool = Security(verify_token)):
     code = secrets.token_hex(3).upper()
     expires_at = datetime.utcnow() + timedelta(minutes=10)
-    codigo = PairCode(code=code, parent_id=parent_id, expires_at=expires_at)
-    codigos_db.append(codigo)
+    codigos_db.append(PairCode(code=code, parent_id=parent_id, expires_at=expires_at))
     return {"codigo": code, "expira_em": expires_at}
 
 class ParingRequest(BaseModel):
@@ -255,22 +254,9 @@ def heartbeat(device_id: str):
 @app.get("/listar_dispositivos/{parent_id}")
 def listar_dispositivos(parent_id: str, _: bool = Security(verify_token)):
     lista = [d for d in dispositivos_db if d.parent_id == parent_id]
-    return {
-        "dispositivos": [
-            {
-                "nome": d.nome,
-                "sistema": d.sistema,
-                "ativo": d.ativo,
-                "pareado_em": d.pareado_em,
-                "ultimo_heartbeat": d.ultimo_heartbeat,
-            }
-            for d in lista
-        ]
-    }
-              "pareado_em": d.pareado_em,
-                "ultimo_heartbeat": d.ultimo_heartbeat,
-            }
-            for d in lista
-        ]
-    }
+    return {"dispositivos": lista}
 
+# --------------------------------------------------
+# 🔹 Handler Serverless (OBRIGATÓRIO NA VERCEL)
+# --------------------------------------------------
+handler = Mangum(app)
