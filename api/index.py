@@ -28,16 +28,39 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# --------------------------------------------------
-# 🔹 CORS DEFINITIVO
-# --------------------------------------------------
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# CORS TOTALMENTE CORRIGIDO
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://(.*\.lovable\.app|.*\.lovableproject\.com|.*\.vercel\.app)",
+    allow_origin_regex=r"https://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/filter")
+async def filter_text(payload: dict):
+    try:
+        text = payload.get("text", "")
+
+        banned_words = ["proibido", "banido"]
+
+        for w in banned_words:
+            if w in text.lower():
+                return {"allowed": False, "reason": "Conteúdo bloqueado."}
+
+        return {"allowed": True}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --------------------------------------------------
 # 🔹 Autenticação
